@@ -1,0 +1,231 @@
+<!-- Save as clash_clone.html -->
+<!DOCTYPE html>
+<html>
+<head>
+<title>Mini Royale Deck Builder</title>
+<style>
+canvas { border: 2px solid black; display: block; margin: 10px auto; background: #f0f0f0; }
+#deckBuilder, #gameUI { text-align: center; font-family: sans-serif; margin-top: 20px; }
+.card {
+display: inline-block;
+border: 2px solid #444;
+padding: 10px;
+margin: 5px;
+cursor: pointer;
+background: white;
+width: 120px;
+}
+.selected { border-color: green; }
+#elixirBar { margin: 10px; font-size: 20px; }
+#gameUI { display: none; }
+</style>
+</head>
+<body>
+
+<div id="deckBuilder">
+<h2>Select 4 Cards</h2>
+<div id="cardPool"></div>
+<button onclick="startGame()">Start Game</button>
+</div>
+
+<div id="gameUI">
+<canvas id="gameCanvas" width="800" height="400"></canvas>
+<div id="elixirBar">Elixir: <span id="elixirCount">5</span>/10</div>
+<div id="playerDeck"></div>
+</div>
+
+<script>
+const allCards = [
+{ name: "Knight", cost: 3, hp: 50, atk: 5, speed: 1 },
+{ name: "Archer", cost: 2, hp: 30, atk: 3, speed: 1.2 },
+{ name: "Evo Archer", cost: 3, hp: 35, atk: 5, speed: 1.4, evolved: true },
+{ name: "Mega Knight", cost: 7, hp: 100, atk: 10, splash: true, speed: 0.8 },
+{ name: "Archer Queen", cost: 5, hp: 40, atk: 8, range: true, speed: 1.1 }
+];
+
+let selectedDeck = [];
+
+function renderDeckBuilder() {
+const pool = document.getElementById("cardPool");
+allCards.forEach((card, index) => {
+const div = document.createElement("div");
+div.className = "card";
+div.innerHTML = `<strong>${card.name}</strong><br>Cost: ${card.cost}`;
+div.onclick = () => {
+if (div.classList.contains("selected")) {
+div.classList.remove("selected");
+selectedDeck = selectedDeck.filter(c => c !== card);
+} else if (selectedDeck.length < 4) {
+div.classList.add("selected");
+selectedDeck.push(card);
+}
+};
+pool.appendChild(div);
+});
+}
+
+renderDeckBuilder();
+
+// Game code
+let units = [], towers = [], elixir = 5, enemyElixir = 5;
+
+function startGame() {
+if (selectedDeck.length !== 4) return alert("Pick exactly 4 cards.");
+document.getElementById("deckBuilder").style.display = "none";
+document.getElementById("gameUI").style.display = "block";
+
+initGame();
+}
+
+function initGame() {
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// Init towers
+towers = [
+{ x: 100, y: 100, hp: 100, owner: "player", type: "side" },
+{ x: 100, y: 300, hp: 100, owner: "player", type: "side" },
+{ x: 100, y: 200, hp: 150, owner: "player", type: "king" },
+{ x: 700, y: 100, hp: 100, owner: "enemy", type: "side" },
+{ x: 700, y: 300, hp: 100, owner: "enemy", type: "side" },
+{ x: 700, y: 200, hp: 150, owner: "enemy", type: "king" }
+];
+
+// Player UI
+const deckUI = document.getElementById("playerDeck");
+deckUI.innerHTML = "";
+selectedDeck.forEach((card, i) => {
+const btn = document.createElement("button");
+btn.textContent = `${card.name} (${card.cost})`;
+btn.onclick = () => deployUnit(card, "player");
+deckUI.appendChild(btn);
+});
+
+// Elixir
+function gainElixir() {
+if (elixir < 10) elixir += 0.1;
+document.getElementById("elixirCount").textContent = Math.floor(elixir);
+setTimeout(gainElixir, 500);
+}
+
+function gainEnemyElixir() {
+if (enemyElixir < 10) enemyElixir += 0.1;
+setTimeout(gainEnemyElixir, 500);
+}
+
+// AI deploys
+function aiDeploy() {
+const card = allCards[Math.floor(Math.random() * allCards.length)];
+if (enemyElixir >= card.cost) deployUnit(card, "enemy");
+setTimeout(aiDeploy, 2000 + Math.random() * 1000);
+}
+
+gainElixir();
+gainEnemyElixir();
+aiDeploy();
+
+// Deploy Unit
+function deployUnit(card, owner) {
+const cost = card.cost;
+if (owner === "player" && elixir < cost) return;
+if (owner === "enemy" && enemyElixir < cost) return;
+
+if (owner === "player") elixir -= cost;
+if (owner === "enemy") enemyElixir -= cost;
+
+const unit = {
+...card,
+x: owner === "player" ? 150 : 650,
+y: Math.random() < 0.5 ? 120 : 280,
+owner,
+target: null,
+hp: card.hp
+};
+units.push(unit);
+}
+
+function findTarget(unit) {
+const enemies = [...units, ...towers].filter(e => e.owner !== unit.owner && e.hp > 0);
+enemies.sort((a, b) => {
+const d1 = Math.hypot(unit.x - a.x, unit.y - a.y);
+const d2 = Math.hypot(unit.x - b.x, unit.y - b.y);
+return d1 - d2;
+});
+return enemies[0];
+}
+
+function update() {
+for (let unit of units) {
+if (!unit.target || unit.target.hp <= 0) {
+unit.target = findTarget(unit);
+}
+
+if (unit.target) {
+const dx = unit.target.x - unit.x;
+const dy = unit.target.y - unit.y;
+const dist = Math.sqrt(dx * dx + dy * dy);
+
+if (dist > 5) {
+unit.x += unit.speed * dx / dist;
+unit.y += unit.speed * dy / dist;
+} else {
+if (unit.splash) {
+const hits = [...units].filter(
+u => u.owner !== unit.owner && Math.hypot(unit.x - u.x, unit.y - u.y) < 30
+);
+hits.forEach(h => h.hp -= unit.atk);
+} else {
+unit.target.hp -= unit.atk;
+}
+}
+}
+}
+
+units = units.filter(u => u.hp > 0);
+checkGameOver();
+}
+
+function draw() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+towers.forEach(t => {
+ctx.fillStyle = t.owner === "player" ? "blue" : "red";
+ctx.fillRect(t.x - 15, t.y - 15, 30, 30);
+ctx.strokeStyle = t.type === "king" ? "gold" : "black";
+ctx.strokeRect(t.x - 15, t.y - 15, 30, 30);
+ctx.fillStyle = "black";
+ctx.fillText("HP: " + t.hp, t.x - 20, t.y - 20);
+});
+
+units.forEach(u => {
+ctx.fillStyle = u.owner === "player" ? "green" : "orange";
+ctx.beginPath();
+ctx.arc(u.x, u.y, 10, 0, Math.PI * 2);
+ctx.fill();
+});
+}
+
+function checkGameOver() {
+const pKing = towers.find(t => t.owner === "player" && t.type === "king");
+const eKing = towers.find(t => t.owner === "enemy" && t.type === "king");
+if (pKing.hp <= 0) {
+alert("You Lose!");
+location.reload();
+}
+if (eKing.hp <= 0) {
+alert("You Win!");
+location.reload();
+}
+}
+
+function gameLoop() {
+update();
+draw();
+requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+}
+</script>
+
+</body>
